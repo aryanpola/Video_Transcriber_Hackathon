@@ -4,7 +4,8 @@ import reactLogo from './assets/react.svg'
 import viteLogo from '/vite.svg'
 import './App.css'
 import Default from './components/Default'
-import VideoUploader from './components/UploadVideo'
+import UploadVideo from './components/UploadVideo'
+import Navbar from './components/Navbar'
 // ... existing code ...
 
 function App() {
@@ -12,12 +13,13 @@ function App() {
 
   return (
     <Router>
+      <Navbar />
       <Routes>
         <Route path="/" element={
           <Default />
         } />
         {/* Add more routes here as needed */}
-        <Route path="/upload-video" element={<VideoUploader />} />
+        <Route path="/upload-video" element={<UploadVideo />} />
       </Routes>
     </Router>
   )

@@ -5,6 +5,10 @@ from moviepy import *
 from google.cloud import storage, speech, translate_v3
 from pydub import AudioSegment
 import os
+import json
+import nltk
+from nltk.translate.bleu_score import sentence_bleu
+
 
 app = Flask(__name__)
 CORS(app)
@@ -70,9 +74,20 @@ def transcribe_video(video_path):
     audio_path = "temp_audio.mp3"
     video_clip = VideoFileClip(video_path)
     video_clip.audio.write_audiofile(audio_path)
-    video_clip.close()  # Close the video clip to free resources
+    video_clip.close()
 
-    # Convert audio configuration to match Google Speech requirements
+    # Upload the audio file to GCS
+    bucket_name = "translation_980"
+    destination_blob_name = "temp_audio.mp3"
+    bucket = storage_client.bucket(bucket_name)
+    blob = bucket.blob(destination_blob_name)
+    blob.upload_from_filename(audio_path)
+
+    # Use the GCS URI for transcription
+    gcs_uri = f"gs://{bucket_name}/{destination_blob_name}"
+
+    # Configure audio for GCS
+    audio = speech.RecognitionAudio(uri=gcs_uri)
     config = speech.RecognitionConfig(
         encoding=speech.RecognitionConfig.AudioEncoding.ENCODING_UNSPECIFIED,
         sample_rate_hertz=44100,
@@ -81,10 +96,6 @@ def transcribe_video(video_path):
     )
 
     # Use long_running_recognize for large files
-    with open(audio_path, "rb") as audio_file:
-        content = audio_file.read()
-    
-    audio = speech.RecognitionAudio(content=content)
     operation = speech_client.long_running_recognize(config=config, audio=audio)
     response = operation.result(timeout=300)  # Increased timeout for longer files
 
@@ -146,6 +157,7 @@ def translate_text():
     parent = f"projects/{project_id}/locations/{location}"
 
     translations = {}
+    bleu_scores = {}
     for language, code in target_languages.items():
         try:
             request_config = {
@@ -156,11 +168,26 @@ def translate_text():
                 "target_language_code": code,
             }
             response = translate_client.translate_text(request=request_config)
-            translations[language] = response.translations[0].translated_text
+            translated_text = response.translations[0].translated_text
+            translations[language] = translated_text
+
+            # Calculate BLEU score
+            # Note: You need a reference translation for each language to calculate BLEU
+            reference = [text.split()]  # This should be the reference translation
+            candidate = translated_text.split()
+            bleu_score = sentence_bleu(reference, candidate)
+            bleu_scores[language] = bleu_score
+
         except Exception as e:
             translations[language] = f"Error: {str(e)}"
+            bleu_scores[language] = "N/A"
     
-    return jsonify({"translations": translations}), 200
+    
+    # Export translations and BLEU scores to a JSON file
+    with open('translations.json', 'w') as json_file:
+        json.dump({"translations": translations, "bleu_scores": bleu_scores}, json_file, ensure_ascii=False, indent=4)
+
+    return jsonify({"translations": translations, "bleu_scores": bleu_scores}), 200
 
 if __name__ == '__main__':
     app.run(debug=True)
